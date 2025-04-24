@@ -9,7 +9,12 @@ import jakarta.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.MaybeInaccessibleMessage;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.Optional;
 
@@ -43,6 +48,10 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        if (update.hasCallbackQuery()) {
+            handleCallbackQuery(update.getCallbackQuery());
+            return;
+        }
         if (!update.hasMessage() || !update.getMessage().hasText()) {
             return;
         }
@@ -104,6 +113,36 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private boolean isCommand(String messageText) {
         return messageText.startsWith("/");
+    }
+
+    private void handleCallbackQuery(CallbackQuery callbackQuery) {
+        String callbackData = callbackQuery.getData();
+        Long chatId = callbackQuery.getMessage().getChatId();
+        User user = userService.findByTelegramId(callbackQuery.getFrom().getId()).orElseThrow();
+
+        // Удаляем кнопки после нажатия
+        deleteMessageButtons(callbackQuery.getMessage());
+
+        if (callbackData.startsWith("approve_")) {
+            commandProcessor.handleApproveCommand(chatId, user, callbackData);
+        } else if (callbackData.startsWith("reject_")) {
+            commandProcessor.handleRejectCommand(chatId, user, callbackData);
+        } else if (callbackData.startsWith("request_changes_")) {
+            commandProcessor.handleRequestChangesCommand(chatId, user, callbackData);
+        }
+    }
+
+    private void deleteMessageButtons(MaybeInaccessibleMessage message) {
+        EditMessageReplyMarkup editMarkup = new EditMessageReplyMarkup();
+        editMarkup.setChatId(message.getChatId().toString());
+        editMarkup.setMessageId(message.getMessageId());
+        editMarkup.setReplyMarkup(null); // Удаляем все кнопки
+
+        try {
+            execute(editMarkup);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
     }
 
 }

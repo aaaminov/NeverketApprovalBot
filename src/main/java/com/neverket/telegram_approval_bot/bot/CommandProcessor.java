@@ -1,14 +1,13 @@
 package com.neverket.telegram_approval_bot.bot;
 
 import com.neverket.telegram_approval_bot.model.*;
+import com.neverket.telegram_approval_bot.repository.ApprovalRouteRepository;
 import com.neverket.telegram_approval_bot.service.*;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
 import java.util.stream.Collectors;
-
-import static com.neverket.telegram_approval_bot.bot.MyTelegramBot.*;
 
 @Component
 @AllArgsConstructor
@@ -28,6 +27,7 @@ public class CommandProcessor {
     private ApprovalRouteService approvalRouteService;
     private MessageSender messageSender;
     private final NotificationService notificationService;
+    private final ApprovalRouteRepository approvalRouteRepository;
 
     public void processCommand(MessageContext context, User user, Optional<UserState> userState) {
         switch (context.getMessageText()) {
@@ -49,13 +49,13 @@ public class CommandProcessor {
                 break;
             // v2
             case String cmd when cmd.startsWith("/approve_"):
-                handleApproveCommand(context, user, cmd);
+                handleApproveCommand(context.getChatId(), user, cmd);
                 break;
             case String cmd when cmd.startsWith("/reject_"):
-                handleRejectCommand(context, user, cmd);
+                handleRejectCommand(context.getChatId(), user, cmd);
                 break;
             case String cmd when cmd.startsWith("/request_changes_"):
-                handleRequestChangesCommand(context, user, cmd);
+                handleRequestChangesCommand(context.getChatId(), user, cmd);
                 break;
             default:
                 break;
@@ -125,6 +125,9 @@ public class CommandProcessor {
             case CONFIRMING_REQUEST:
                 handleConfirmingRequestState(context, request, userState);
                 break;
+            case EDITING_REQUEST:
+                handleEditingRequestState(context, userState);
+                break;
             default:
                 System.out.println("8/ come to default");
                 break;
@@ -157,7 +160,7 @@ public class CommandProcessor {
             return;
         }
 
-        List<User> validReviewers = validateReviewers(context.getChatId(), reviewerUserNames);
+        List<User> validReviewers = validateReviewers(context.getChatId(), reviewerUserNames, request);
         if (validReviewers == null) return;
 
         saveApprovalRoutes(request, userState, validReviewers);
@@ -170,7 +173,7 @@ public class CommandProcessor {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    private List<User> validateReviewers(Long chatId, Set<String> reviewerUserNames) {
+    private List<User> validateReviewers(Long chatId, Set<String> reviewerUserNames, Request request) {
         List<User> validReviewers = new ArrayList<>();
 
         for (String dogUserName : reviewerUserNames) {
@@ -195,10 +198,22 @@ public class CommandProcessor {
                 return null;
             }
 
+            // Проверка на уникальность в рамках заявки
+            if (isReviewerAlreadyInRequest(request, reviewer)) {
+                messageSender.sendMessage(chatId,
+                        "Ревьювер @" + userName + " уже добавлен в другой уровень.\n" +
+                                "Один пользователь не может быть ревьювером на нескольких уровнях.");
+                return null;
+            }
+
             validReviewers.add(reviewer);
         }
 
         return validReviewers;
+    }
+
+    private boolean isReviewerAlreadyInRequest(Request request, User reviewer) {
+        return approvalRouteRepository.existsByRequestAndReviewer(request, reviewer);
     }
 
     private void saveApprovalRoutes(Request request, UserState userState, List<User> validReviewers) {
@@ -239,7 +254,7 @@ public class CommandProcessor {
     private String buildRequestSummary(Request request) {
         StringBuilder sb = new StringBuilder();
         sb.append("Ваша заявка готова:\n\n");
-        sb.append("ID: ").append(request.getId()).append("\n");
+        sb.append("#").append(request.getId()).append("\n");
         sb.append("Текст: ").append(request.getText()).append("\n");
         sb.append("Статус: ").append(request.getStatus().getName()).append("\n\n");
 
@@ -275,6 +290,18 @@ public class CommandProcessor {
     }
 
     private void completeRequestCreation(UserState userState) {
+        // Устанавливаем специальный статус для готовой к согласованию заявки
+        RequestStatus readyStatus = requestStatusService.findByName("PENDING_APPROVAL")
+                .orElseThrow(() -> new RuntimeException("Status not found"));
+
+        Request request = userState.getRequestInProgress();
+        request.setStatus(readyStatus);
+        requestService.saveRequest(request);
+
+        // Отправляем уведомления ревьюверам
+        notificationService.notifyApprovers(request);
+
+        // Сбрасываем состояние пользователя
         userState.setState(UserBotState.NONE);
         userState.setRequestInProgress(null);
         userState.setCurrentApprovalLevel(0);
@@ -291,25 +318,42 @@ public class CommandProcessor {
     }
 
 
-    private void handleApproveCommand(MessageContext context, User user, String command) {
-        long requestId = Long.parseLong(command.substring("/approve_".length()));
-        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.APPROVED);
+    // commands
+//    private void handleApproveCommand(MessageContext context, User user, String command) {
+//        long requestId = Long.parseLong(command.substring("/approve_".length()));
+//        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.APPROVED);
+//    }
+//
+//    private void handleRejectCommand(MessageContext context, User user, String command) {
+//        long requestId = Long.parseLong(command.substring("/reject_".length()));
+//        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.REJECTED);
+//    }
+//
+//    private void handleRequestChangesCommand(MessageContext context, User user, String command) {
+//        long requestId = Long.parseLong(command.substring("/request_changes_".length()));
+//        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.CHANGES_REQUESTED);
+//    }
+
+
+    //buttons
+    public void handleApproveCommand(Long chatId, User user, String callbackData) {
+        long requestId = Long.parseLong(callbackData.substring("approve_".length()));
+        updateApprovalStatus(chatId, user, requestId, ApprovalStatus.APPROVED);
     }
 
-    private void handleRejectCommand(MessageContext context, User user, String command) {
-        long requestId = Long.parseLong(command.substring("/reject_".length()));
-        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.REJECTED);
+    public void handleRejectCommand(Long chatId, User user, String callbackData) {
+        long requestId = Long.parseLong(callbackData.substring("reject_".length()));
+        updateApprovalStatus(chatId, user, requestId, ApprovalStatus.REJECTED);
     }
 
-    private void handleRequestChangesCommand(MessageContext context, User user, String command) {
-        long requestId = Long.parseLong(command.substring("/request_changes_".length()));
-        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.CHANGES_REQUESTED);
+    public void handleRequestChangesCommand(Long chatId, User user, String callbackData) {
+        long requestId = Long.parseLong(callbackData.substring("request_changes_".length()));
+        updateApprovalStatus(chatId, user, requestId, ApprovalStatus.CHANGES_REQUESTED);
     }
+
 
     private void updateApprovalStatus(Long chatId, User reviewer, long requestId, ApprovalStatus status) {
-//        Optional<ApprovalRoute> routeOpt = approvalRouteRepository
-//                .findByRequestIdAndReviewer(requestId, reviewer);
-        Optional<ApprovalRoute> routeOpt = approvalRouteService.findByRequestIdAndReviewer(requestId, reviewer);
+        Optional<ApprovalRoute> routeOpt = approvalRouteService.findFirstPendingByRequestIdAndReviewer(requestId, reviewer);
 
         if (routeOpt.isEmpty()) {
             messageSender.sendMessage(chatId, "Заявка не найдена или у вас нет прав для её согласования");
@@ -320,10 +364,68 @@ public class CommandProcessor {
         route.setApprovalStatus(status);
         approvalRouteService.save(route);
 
-        messageSender.sendMessage(chatId, "Статус заявки обновлен: " + status.name());
+        if (status == ApprovalStatus.CHANGES_REQUESTED) {
+            // Переводим заявку в режим редактирования
+            Request request = route.getRequest();
+            request.setStatus(requestStatusService.findByName("NEEDS_REVISION").orElseThrow());
+            requestService.saveRequest(request);
 
-        // Уведомляем автора об изменении статуса
-        notificationService.notifyRequester(route.getRequest(), reviewer, status);
+            // Устанавливаем состояние редактирования для автора
+            UserState userState = userStateService.findByUserId(request.getUser().getId())
+                    .orElse(new UserState(request.getUser(), UserBotState.NONE, null, 0));
+
+            userState.setState(UserBotState.EDITING_REQUEST);
+            userState.setRequestInProgress(request);
+            userStateService.saveUserState(userState);
+
+            // Уведомляем автора
+            messageSender.sendMessage(
+                    request.getUser().getTelegramId(),
+                    "Запрошена доработка заявки #" + requestId +
+                            "\nОт ревьювера: @" + reviewer.getUserName() +
+                            "\nПредыдущий текст:\n" + request.getText() +
+                            "\n\nВведите новый текст заявки:");
+        } else {
+            requestService.updateRequestStatusAfterApproval(requestId, notificationService);
+        }
+    }
+
+    private void handleEditingRequestState(MessageContext context, UserState userState) {
+        Request request = userState.getRequestInProgress();
+
+        // Обновляем текст
+        request.setText(context.getMessageText());
+
+        // Сбрасываем статус заявки
+        RequestStatus pendingStatus = requestStatusService.findByName("PENDING_APPROVAL")
+                .orElseThrow(() -> new RuntimeException("Статус PENDING_APPROVAL не найден"));
+        request.setStatus(pendingStatus);
+
+        // Сбрасываем статусы всех ApprovalRoute
+        List<ApprovalRoute> routes = approvalRouteService.findByRequest(request);
+        routes.forEach(route -> {
+            if (route.getApprovalStatus() != ApprovalStatus.APPROVED) {
+                route.setApprovalStatus(ApprovalStatus.PENDING);
+            }
+        });
+        approvalRouteService.saveAll(routes);
+
+        // Сохраняем изменения
+        requestService.saveRequest(request);
+
+        // Сбрасываем состояние пользователя
+        userState.setState(UserBotState.NONE);
+        userState.setRequestInProgress(null);
+        userStateService.saveUserState(userState);
+
+        // Уведомляем автора
+        messageSender.sendMessage(
+                context.getChatId(),
+                "Заявка обновлена и снова отправлена на согласование."
+        );
+
+        // Отправляем уведомления ревьюверам
+        notificationService.notifyApprovers(request);
     }
 }
 
