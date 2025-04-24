@@ -1,6 +1,7 @@
 package com.neverket.telegram_approval_bot.repository;
 
 import com.neverket.telegram_approval_bot.model.ApprovalRoute;
+import com.neverket.telegram_approval_bot.model.ApprovalStatus;
 import com.neverket.telegram_approval_bot.model.Request;
 import com.neverket.telegram_approval_bot.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,5 +16,12 @@ public interface ApprovalRouteRepository extends JpaRepository<ApprovalRoute, Lo
     List<ApprovalRoute> findByRequest(Request request);
     List<ApprovalRoute> findByRequestOrderByLevelAsc(Request request);
     Optional<ApprovalRoute> findByRequestIdAndReviewer(Long requestId, User reviewer);
+    List<ApprovalRoute> findByRequestIdAndReviewerAndApprovalStatus(
+            Long requestId,
+            User reviewer,
+            ApprovalStatus status
+    );
 
+    List<ApprovalRoute> findByRequestAndLevel(Request request, Integer integer);
+    boolean existsByRequestAndReviewer(Request request, User reviewer);
 }

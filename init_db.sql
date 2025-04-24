@@ -48,12 +48,12 @@ select * from request_status;
 
 
 INSERT INTO request_status (id, name) VALUES
-    (1, 'NEW'),
-    (2, 'APPROVED'),
-    (3, 'REJECTED'),
-    (4, 'UNDER_REVIEW'),
-    (5, 'NEEDS_REVISION')
-;
+    (1, 'NEW'),               -- Новая (черновик)
+    (2, 'PENDING_APPROVAL'),  -- Ожидает согласования (после /done)
+    (3, 'APPROVED'),          -- Полностью согласована
+    (4, 'REJECTED'),          -- Отклонена
+    (5, 'IN_REVIEW'),         -- В процессе согласования
+    (6, 'NEEDS_REVISION');    -- Требует доработки
 
 
 INSERT INTO users VALUES
