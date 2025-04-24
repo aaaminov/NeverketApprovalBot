@@ -4,5 +4,6 @@ public enum UserBotState {
     NONE, // по умолчанию
     WAITING_DESCRIPTION,
     WAITING_APPROVERS_ON_LEVEL,
-    CONFIRMING_REQUEST
+    CONFIRMING_REQUEST,
+    EDITING_REQUEST
 }

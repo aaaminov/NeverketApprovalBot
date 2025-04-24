@@ -1,17 +1,22 @@
 package com.neverket.telegram_approval_bot.bot;
 
 import com.neverket.telegram_approval_bot.config.BotConfig;
-import com.neverket.telegram_approval_bot.model.*;
+import com.neverket.telegram_approval_bot.model.User;
+import com.neverket.telegram_approval_bot.model.UserBotState;
+import com.neverket.telegram_approval_bot.model.UserState;
 import com.neverket.telegram_approval_bot.service.*;
+import jakarta.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.MaybeInaccessibleMessage;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Component
 @AllArgsConstructor
@@ -23,7 +28,13 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     private RequestService requestService;
     private UserStateService userStateService;
     private ApprovalRouteService approvalRouteService;
+    private MessageSender messageSender;
+    private CommandProcessor commandProcessor;
 
+    @PostConstruct
+    public void init() {
+        messageSender.setBot(this);
+    }
 
     @Override
     public String getBotUsername() {
@@ -35,302 +46,103 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         return botConfig.botToken;
     }
 
+    @Override
     public void onUpdateReceived(Update update) {
-
-        if (update.hasMessage() && update.getMessage().hasText()) {
-            Long chatId = update.getMessage().getChatId();
-            String messageText = update.getMessage().getText();
-            System.out.println("\nТекст пользователя:\n" + messageText + "\n");
-
-            Long telegramId = update.getMessage().getFrom().getId();
-            String firstName = update.getMessage().getFrom().getFirstName();
-            String lastName = update.getMessage().getFrom().getLastName();
-            String userName = update.getMessage().getFrom().getUserName();
-
-            // Получаем пользователя по его Telegram ID
-            User user = userService.findByTelegramId(telegramId)
-                    .orElseGet(() -> {
-                        User newUser = new User(
-                                telegramId,
-                                false,
-                                firstName,
-                                lastName,
-                                userName
-                        );  // Если пользователя нет, создаем нового
-                        System.out.println("1/ User not found, prepare to create and save");
-                        return userService.saveUser(newUser);
-                    });
-            System.out.println("1/ User found or created");
-            System.out.println(user.toString());
-
-            Optional<UserState> userState = userStateService.findByUserId(user.getId());
-            if (userState.isEmpty()) {
-                System.out.println("2/ UserState not founded");
-            } else {
-                System.out.println(userState.get().toString());
-            }
-
-            switch (messageText) {
-                case "/start":
-                    startMessage(chatId, firstName);
-                    break;
-
-                case "/help":
-                    sendHelpMessage(chatId);
-                    break;
-
-                case "/my_requests":
-                    var requests = requestService.findAllByUser(user);
-                    if (requests.isEmpty()) {
-                        sendMessage(chatId, "У вас пока нет заявок.");
-                    } else {
-                        StringBuilder sb = new StringBuilder("Ваши заявки:\n\n");
-                        for (Request req : requests) {
-                            sb.append("• [").append(req.getStatus().getName()).append("] ")
-                                    .append(req.getText()).append("\n");
-                        }
-                        sendMessage(chatId, sb.toString());
-                    }
-                    break;
-
-                case "/new_request":
-                    // Если пользователь не в процессе создания заявки
-                    if (userState.isEmpty()) {
-                        startNewRequestProcess(chatId, telegramId);
-                    } else if (userState.get().getState().equals(UserBotState.NONE)) {
-//                        userState.get().setState(UserBotState.NONE);
-                        startNewRequestProcess(chatId, telegramId);
-                    } else if (userState.get().getState().equals(UserBotState.WAITING_DESCRIPTION)
-                            || userState.get().getState().equals(UserBotState.WAITING_APPROVERS_ON_LEVEL)
-                    ) {
-                        sendMessage(chatId, "Вы уже находитесь в процессе создания заявки.");
-                    }
-                    break;
-
-                case "/done":
-                    if (userState.isPresent() && userState.get().getState().equals(UserBotState.WAITING_APPROVERS_ON_LEVEL)) {
-                        userState.get().setState(UserBotState.CONFIRMING_REQUEST);
-                        userStateService.saveUserState(userState.get());
-                        handleUserInput(chatId, user.getId(), messageText);
-                    }
-                    break;
-
-                default:
-                    if (userState.isPresent() && userState.get().getState() != UserBotState.NONE) {
-                        handleUserInput(chatId, user.getId(), messageText);
-                    }
-                    break;
-            }
-        }
-    }
-
-    private void startNewRequestProcess(Long chatId, Long telegramId) {
-        Optional<User> user = userService.findByTelegramId(telegramId);
-        System.out.println("3/ User found");
-
-        // По умолчанию новый запрос будет иметь статус "Новый"
-        RequestStatus newRequestStatus = requestStatusService.findByName("NEW")
-                .orElseThrow(() -> new RuntimeException("Статус 'NEW' не найден"));
-
-        // Создаем заявку
-        Request request = new Request(newRequestStatus, user.get(), "");
-        requestService.saveRequest(request);
-
-        // Устанавливаем у пользователя состояние "ожидания описания заявки"
-        UserState userState = userStateService.findByUserId(user.get().getId())
-                .orElse(new UserState(user.get(), UserBotState.WAITING_DESCRIPTION, request, 0));
-        userState.setState(UserBotState.WAITING_DESCRIPTION);
-        userState.setRequestInProgress(request);
-        userState.setCurrentApprovalLevel(0);
-        userStateService.saveUserState(userState);
-
-        sendMessage(chatId, "Пожалуйста, введите описание заявки.");
-    }
-
-    private void handleUserInput(Long chatId, Long userId, String messageText) {
-        System.out.println("4/ handleUserInput");
-        Optional<UserState> userState = userStateService.findByUserId(userId);
-        if (userState.isEmpty()) {
+        if (update.hasCallbackQuery()) {
+            handleCallbackQuery(update.getCallbackQuery());
             return;
         }
-        Request request = userState.get().getRequestInProgress();
-        System.out.println("userState: " + userState.get().toString());
+        if (!update.hasMessage() || !update.getMessage().hasText()) {
+            return;
+        }
 
-        switch (userState.get().getState()) {
-            case WAITING_DESCRIPTION:
-                System.out.println("5/ come to WAITING_DESCRIPTION");
-                // Обрабатываем описание заявки
-                request.setText(messageText);
-                requestService.saveRequest(request);
+        MessageContext context = createMessageContext(update);
+        logUserInfo(context);
 
-                // Переходим к следующему шагу - получаем ревьюеров
-                userState.get().setState(UserBotState.WAITING_APPROVERS_ON_LEVEL);
-                var uss = userStateService.saveUserState(userState.get());
-                System.out.println("after save: " + uss.toString());
+        User user = getUserOrCreateIfNotExists(context);
+        Optional<UserState> userState = userStateService.findByUserId(user.getId());
 
-                StringBuilder sendMessageText = new StringBuilder(
-                        "Теперь введите ники ревьюеров для первого уровня согласования, через @ и разделённые пробелом.\n\n");
-                sendMessageText.append(getReviewers());
-                sendMessage(chatId, sendMessageText.toString());
-                break;
+        processMessage(context, user, userState);
+    }
 
-            case WAITING_APPROVERS_ON_LEVEL:
-                System.out.println("5/ come to WAITING_APPROVERS_LEVEL");
-                System.out.println("messageText: '" + messageText + "'");
+    private MessageContext createMessageContext(Update update) {
+        return MessageContext.builder()
+                .chatId(update.getMessage().getChatId())
+                .messageText(update.getMessage().getText())
+                .telegramId(update.getMessage().getFrom().getId())
+                .firstName(update.getMessage().getFrom().getFirstName())
+                .lastName(update.getMessage().getFrom().getLastName())
+                .userName(update.getMessage().getFrom().getUserName())
+                .build();
+    }
 
-                // Разделяем строку на никнеймы, убираем лишние пробелы
-                String[] tokens = messageText.trim().split("\\s+");
-                Set<String> reviewerUserNames = Arrays.stream(tokens)
-                        .filter(s -> !s.isBlank())
-                        .collect(Collectors.toCollection(LinkedHashSet::new)); // сохраняем порядок, убираем повторы
+    private void logUserInfo(MessageContext context) {
+        System.out.println("\nТекст пользователя:\n" + context.getMessageText() + "\n");
+    }
 
-                if (reviewerUserNames.isEmpty()) {
-                    sendMessage(chatId, "Вы не ввели ни одного ревьювера. Введите ники через пробел, например: `@user1 @user2`");
-                    return;
-                }
+    private User getUserOrCreateIfNotExists(MessageContext context) {
+        return userService.findByTelegramId(context.getTelegramId())
+                .orElseGet(() -> createNewUser(context));
+    }
 
-                List<User> validReviewers = new ArrayList<>();
-                for (String dogUserName : reviewerUserNames) {
-                    if (!dogUserName.startsWith("@")) {
-                        sendMessage(chatId, "Ник '" + dogUserName + "' некорректен. Каждый ник должен начинаться с '@'. Повторите ввод.");
-                        return;
-                    }
+    private User createNewUser(MessageContext context) {
+        User newUser = new User(
+                context.getTelegramId(),
+                false,
+                context.getFirstName(),
+                context.getLastName(),
+                context.getUserName()
+        );
+        System.out.println("1/ User not found, prepare to create and save");
+        return userService.saveUser(newUser);
+    }
 
-                    String userName = dogUserName.substring(1);
-                    Optional<User> reviewerOpt = userService.findByUserName(userName);
+    private void processMessage(MessageContext context, User user, Optional<UserState> userState) {
+        if (userState.isPresent()) {
+            System.out.println(userState.get().toString());
+        } else {
+            System.out.println("2/ UserState not founded");
+        }
 
-                    if (reviewerOpt.isEmpty()) {
-                        sendMessage(chatId, "Ревьювер @" + userName + " не найден в системе. Повторите ввод.");
-                        return;
-                    }
-
-                    User reviewer = reviewerOpt.get();
-                    if (!reviewer.isReviewer()) {
-                        sendMessage(chatId, "Пользователь @" + userName + " не является ревьювером. Повторите ввод.");
-                        return;
-                    }
-
-                    validReviewers.add(reviewer);
-                }
-
-                // Все ревьюверы прошли проверку — можно сохранять
-                Request requestInProgress = userState.get().getRequestInProgress();
-                int currentLevel = userState.get().getCurrentApprovalLevel() + 1;
-
-                for (User reviewer : validReviewers) {
-                    var approvalRoute = new ApprovalRoute(
-                            requestInProgress,
-                            currentLevel,
-                            reviewer,
-                            ApprovalStatus.PENDING
-                    );
-                    approvalRouteService.save(approvalRoute);
-                }
-
-                userState.get().setCurrentApprovalLevel(currentLevel);
-                userStateService.saveUserState(userState.get());
-
-
-                sendMessage(chatId, "Введите ревьюеров для " + (currentLevel + 1) + " уровня согласования.\n"
-                        + "Или введите /done для завершения.");
-                break;
-
-//            case CONFIRMING_REQUEST:
-//                System.out.println("7/ come to CONFIRMING_REQUEST");
-//                // Если заявка готова, подтверждаем её
-//                sendMessage(chatId, "Заявка готова, ожидайте подтверждения.");
-//                break;
-
-            case CONFIRMING_REQUEST:
-                System.out.println("7/ come to CONFIRMING_REQUEST");
-                if (request == null) {
-                    sendMessage(chatId, "Ошибка: заявка не найдена.");
-                    return;
-                }
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("Ваша заявка готова:\n\n");
-                sb.append("ID: ").append(request.getId()).append("\n");
-                sb.append("Текст: ").append(request.getText()).append("\n");
-                sb.append("Статус: ").append(request.getStatus().getName()).append("\n\n");
-
-                List<ApprovalRoute> routes = approvalRouteService.findByRequestOrderByLevel(request);
-
-                if (routes.isEmpty()) {
-                    sb.append("Маршрут согласования не задан.\n");
-                } else {
-                    sb.append("Маршрут согласования:\n");
-
-                    Map<Integer, List<String>> reviewersByLevel = new TreeMap<>();
-                    for (ApprovalRoute route : routes) {
-                        reviewersByLevel
-                                .computeIfAbsent(route.getLevel(), k -> new ArrayList<>())
-                                .add("@" + route.getReviewer().getUserName() + " (" + route.getApprovalStatus().name() + ")");
-                    }
-
-                    for (var entry : reviewersByLevel.entrySet()) {
-                        sb.append("  Уровень ").append(entry.getKey()).append(": ");
-                        sb.append(String.join(", ", entry.getValue()));
-                        sb.append("\n");
-                    }
-                }
-
-                sb.append("\nЗаявка сохранена. Ожидайте подтверждения от ревьюверов.");
-                sendMessage(chatId, sb.toString());
-
-                // Завершаем процесс создания заявки
-                userState.get().setState(UserBotState.NONE);
-                userState.get().setRequestInProgress(null);
-                userState.get().setCurrentApprovalLevel(0);
-                userStateService.saveUserState(userState.get());
-                break;
-
-            default:
-                System.out.println("8/ come to default");
-                break;
+        if (isCommand(context.getMessageText())) {
+            commandProcessor.processCommand(context, user, userState);
+        } else if (userState.isPresent() && userState.get().getState() != UserBotState.NONE) {
+            commandProcessor.handleUserInput(context, user.getId(), userState.get());
         }
     }
 
-    void startMessage(Long chatId, String firstName) {
-        String answer = "Привет, " + firstName + "! Вот что я умею:\n\n" +
-                "/start – запуск бота\n" +
-                "/new_request – новая заявка\n" +
-                "/my_requests – просмотр своих заявок\n" +
-                "/approve – одобрение заявки\n" +
-                "/reject – отклонение заявки\n" +
-                "/help – справка по боту";
-        sendMessage(chatId, answer);
+    private boolean isCommand(String messageText) {
+        return messageText.startsWith("/");
     }
 
-    private void sendHelpMessage(Long chatId) {
-        String answer = "Справка по боту:\n\n" +
-                "/start – запуск бота\n" +
-                "/new_request – новая заявка\n" +
-                "/my_requests – просмотр своих заявок\n" +
-                "/approve – одобрение заявки\n" +
-                "/reject – отклонение заявки\n" +
-                "/help – справка по боту";
-        sendMessage(chatId, answer);
+    private void handleCallbackQuery(CallbackQuery callbackQuery) {
+        String callbackData = callbackQuery.getData();
+        Long chatId = callbackQuery.getMessage().getChatId();
+        User user = userService.findByTelegramId(callbackQuery.getFrom().getId()).orElseThrow();
+
+        // Удаляем кнопки после нажатия
+        deleteMessageButtons(callbackQuery.getMessage());
+
+        if (callbackData.startsWith("approve_")) {
+            commandProcessor.handleApproveCommand(chatId, user, callbackData);
+        } else if (callbackData.startsWith("reject_")) {
+            commandProcessor.handleRejectCommand(chatId, user, callbackData);
+        } else if (callbackData.startsWith("request_changes_")) {
+            commandProcessor.handleRequestChangesCommand(chatId, user, callbackData);
+        }
     }
 
-    void sendMessage(Long chatId, String text) {
-        SendMessage sendMessage = new SendMessage();
-        sendMessage.setChatId(String.valueOf(chatId));
-        sendMessage.setText(text);
+    private void deleteMessageButtons(MaybeInaccessibleMessage message) {
+        EditMessageReplyMarkup editMarkup = new EditMessageReplyMarkup();
+        editMarkup.setChatId(message.getChatId().toString());
+        editMarkup.setMessageId(message.getMessageId());
+        editMarkup.setReplyMarkup(null); // Удаляем все кнопки
+
         try {
-            execute(sendMessage);
+            execute(editMarkup);
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
-    }
-
-    private String getReviewers() {
-        StringBuilder reviewersList = new StringBuilder("Список доступных ревьюеров:\n");
-        List<User> availableReviewers = userService.findAllReviewers();
-        for (int i = 0; i < availableReviewers.size(); i++) {
-            reviewersList.append((i + 1) + ". @" + availableReviewers.get(i).getUserName()).append("\n");
-        }
-        return reviewersList.toString();
     }
 
 }
