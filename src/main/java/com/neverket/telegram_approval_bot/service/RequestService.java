@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -44,30 +45,55 @@ public class RequestService {
                 .anyMatch(route -> route.getApprovalStatus() == ApprovalStatus.CHANGES_REQUESTED);
 
         if (allApproved) {
-            request.setStatus(requestStatusService.findByName("APPROVED").orElseThrow());
-            requestRepository.save(request);
-            notificationService.notifyAllParticipants(
-                    request,
-                    "Заявка #" + request.getId() + " успешно согласована. ✅"
-            );
+            handleFullApproval(request, notificationService);
         } else if (anyRejected) {
-            request.setStatus(requestStatusService.findByName("REJECTED").orElseThrow());
-            requestRepository.save(request);
-//            notificationService.notifyRequester(request, reviewer, ApprovalStatus.REJECTED);
-            notificationService.notifyAllParticipants(
-                    request,
-                    "Заявка #" + request.getId() + " отклонена. Процесс согласования прекращен. ❌"
-            );
-            return;
+            handleRejection(request, notificationService);
         } else if (anyChangesRequested) {
-            request.setStatus(requestStatusService.findByName("NEEDS_REVISION").orElseThrow());
+            handleChangesRequested(request);
         } else {
-            request.setStatus(requestStatusService.findByName("IN_REVIEW").orElseThrow());
-            // Уведомляем следующих ревьюверов, если заявка еще в процессе
-            notificationService.notifyNextReviewers(request);
+            handleInReview(request, notificationService);
         }
 
         requestRepository.save(request);
+    }
+
+    private void handleFullApproval(Request request, NotificationService notificationService) {
+        request.setStatus(requestStatusService.findByName("APPROVED").orElseThrow());
+        notificationService.notifyAllParticipants(
+                request,
+                "Заявка #" + request.getId() + " успешно согласована. ✅"
+        );
+    }
+
+    private void handleRejection(Request request, NotificationService notificationService) {
+        request.setStatus(requestStatusService.findByName("REJECTED").orElseThrow());
+        notificationService.notifyAllParticipants(
+                request,
+                "Заявка #" + request.getId() + " отклонена. Процесс согласования прекращен. ❌"
+        );
+    }
+
+    private void handleChangesRequested(Request request) {
+        request.setStatus(requestStatusService.findByName("NEEDS_REVISION").orElseThrow());
+    }
+
+    private void handleInReview(Request request, NotificationService notificationService) {
+        request.setStatus(requestStatusService.findByName("IN_REVIEW").orElseThrow());
+
+        // Находим текущий активный уровень
+        Optional<Integer> currentLevel = approvalRouteRepository.findByRequest(request)
+                .stream()
+                .filter(r -> r.getApprovalStatus() == ApprovalStatus.PENDING)
+                .map(ApprovalRoute::getLevel)
+                .min(Integer::compare);
+
+        if (currentLevel.isPresent()) {
+            // Уведомляем всех на текущем уровне
+            notificationService.notifyReviewersOnLevel(request, currentLevel.get());
+        } else {
+            // Если уровней нет - автоматическое одобрение
+            handleFullApproval(request, notificationService);
+        }
     }
 }
 
