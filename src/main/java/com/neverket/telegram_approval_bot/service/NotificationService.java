@@ -173,4 +173,13 @@ public class NotificationService {
             messageSender.sendMessage(route.getReviewer().getTelegramId(), message);
         });
     }
+
+    public void notifyReviewersOnLevel(Request request, int level) {
+        approvalRouteRepository.findByRequestAndLevel(request, level)
+                .forEach(route -> {
+                    if (route.getApprovalStatus() == ApprovalStatus.PENDING) {
+                        sendApprovalNotificationWithButtons(route.getReviewer(), request);
+                    }
+                });
+    }
 }

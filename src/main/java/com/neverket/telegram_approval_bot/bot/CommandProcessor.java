@@ -57,9 +57,41 @@ public class CommandProcessor {
             case String cmd when cmd.startsWith("/request_changes_"):
                 handleRequestChangesCommand(context.getChatId(), user, cmd);
                 break;
+            // v3
+            case "/become_reviewer":
+                handleBecomeReviewer(context.getChatId(), user);
+                break;
+            case "/remove_reviewer":
+                handleRemoveReviewer(context.getChatId(), user);
+                break;
+            //
             default:
                 break;
         }
+    }
+
+    private void handleBecomeReviewer(Long chatId, User user) {
+        if (user.isReviewer()) {
+            messageSender.sendMessage(chatId, "Вы уже являетесь ревьювером");
+            return;
+        }
+
+        user.setReviewer(true);
+        userService.saveUser(user);
+        messageSender.sendMessage(chatId, "Теперь вы ревьювер.\n"
+                + "Теперь вы можете участвовать в согласовании заявок");
+    }
+
+    private void handleRemoveReviewer(Long chatId, User user) {
+        if (!user.isReviewer()) {
+            messageSender.sendMessage(chatId, "Вы не являетесь ревьювером");
+            return;
+        }
+
+        user.setReviewer(false);
+        userService.saveUser(user);
+        messageSender.sendMessage(chatId, "Вы больше не ревьювер\n"
+                + "Теперь вы не будете получать заявки на согласование");
     }
 
     private void handleMyRequestsCommand(Long chatId, User user) {
@@ -69,8 +101,24 @@ public class CommandProcessor {
         } else {
             StringBuilder sb = new StringBuilder("Ваши заявки:\n\n");
             for (Request req : requests) {
-                sb.append("• [").append(req.getStatus().getName()).append("] ")
-                        .append(req.getText()).append("\n");
+                sb.append("# ").append(req.getId()).append("\n");
+                sb.append("Текст: ").append(req.getText()).append("\n");
+                sb.append("Статус: ").append(req.getStatus().getName()).append("\n");
+
+                List<ApprovalRoute> routes = approvalRouteService.findByRequestOrderByLevel(req);
+                if (!routes.isEmpty()) {
+                    sb.append("Процесс согласования:\n");
+                    routes.stream()
+                            .collect(Collectors.groupingBy(ApprovalRoute::getLevel))
+                            .forEach((level, levelRoutes) -> {
+                                sb.append("  Уровень ").append(level).append(":\n");
+                                levelRoutes.forEach(route -> {
+                                    sb.append("    — @").append(route.getReviewer().getUserName())
+                                            .append(" ").append("\n");
+                                });
+                            });
+                }
+                sb.append("\n");
             }
             messageSender.sendMessage(chatId, sb.toString());
         }
