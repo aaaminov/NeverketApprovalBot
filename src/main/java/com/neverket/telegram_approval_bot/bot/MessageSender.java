@@ -29,11 +29,16 @@ public class MessageSender {
     public void sendHelpMessage(Long chatId) {
         String answer = "Справка по боту:\n\n" +
                 "/start – запуск бота\n" +
+                "/help – справка по боту\n" +
+
                 "/new_request – новая заявка\n" +
                 "/my_requests – просмотр своих заявок\n" +
-                "/approve – одобрение заявки\n" +
-                "/reject – отклонение заявки\n" +
-                "/help – справка по боту";
+
+                "/approve_[id] - Одобрить заявку\n" +
+                "/reject_[id] - Отклонить заявку\n" +
+                "/request_changes_[id] - Запросить доработку\n" +
+
+                "";
         sendMessage(chatId, answer);
     }
 

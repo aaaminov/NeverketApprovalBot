@@ -27,9 +27,11 @@ public class CommandProcessor {
     private UserStateService userStateService;
     private ApprovalRouteService approvalRouteService;
     private MessageSender messageSender;
+    private final NotificationService notificationService;
 
     public void processCommand(MessageContext context, User user, Optional<UserState> userState) {
         switch (context.getMessageText()) {
+            // v1
             case COMMAND_START:
                 messageSender.sendStartMessage(context.getChatId(), context.getFirstName());
                 break;
@@ -44,6 +46,18 @@ public class CommandProcessor {
                 break;
             case COMMAND_DONE:
                 handleDoneCommand(context, user, userState);  // Передаем context здесь
+                break;
+            // v2
+            case String cmd when cmd.startsWith("/approve_"):
+                handleApproveCommand(context, user, cmd);
+                break;
+            case String cmd when cmd.startsWith("/reject_"):
+                handleRejectCommand(context, user, cmd);
+                break;
+            case String cmd when cmd.startsWith("/request_changes_"):
+                handleRequestChangesCommand(context, user, cmd);
+                break;
+            default:
                 break;
         }
     }
@@ -274,6 +288,42 @@ public class CommandProcessor {
             reviewersList.append((i + 1) + ". @" + availableReviewers.get(i).getUserName()).append("\n");
         }
         return reviewersList.toString();
+    }
+
+
+    private void handleApproveCommand(MessageContext context, User user, String command) {
+        long requestId = Long.parseLong(command.substring("/approve_".length()));
+        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.APPROVED);
+    }
+
+    private void handleRejectCommand(MessageContext context, User user, String command) {
+        long requestId = Long.parseLong(command.substring("/reject_".length()));
+        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.REJECTED);
+    }
+
+    private void handleRequestChangesCommand(MessageContext context, User user, String command) {
+        long requestId = Long.parseLong(command.substring("/request_changes_".length()));
+        updateApprovalStatus(context.getChatId(), user, requestId, ApprovalStatus.CHANGES_REQUESTED);
+    }
+
+    private void updateApprovalStatus(Long chatId, User reviewer, long requestId, ApprovalStatus status) {
+//        Optional<ApprovalRoute> routeOpt = approvalRouteRepository
+//                .findByRequestIdAndReviewer(requestId, reviewer);
+        Optional<ApprovalRoute> routeOpt = approvalRouteService.findByRequestIdAndReviewer(requestId, reviewer);
+
+        if (routeOpt.isEmpty()) {
+            messageSender.sendMessage(chatId, "Заявка не найдена или у вас нет прав для её согласования");
+            return;
+        }
+
+        ApprovalRoute route = routeOpt.get();
+        route.setApprovalStatus(status);
+        approvalRouteService.save(route);
+
+        messageSender.sendMessage(chatId, "Статус заявки обновлен: " + status.name());
+
+        // Уведомляем автора об изменении статуса
+        notificationService.notifyRequester(route.getRequest(), reviewer, status);
     }
 }
 
