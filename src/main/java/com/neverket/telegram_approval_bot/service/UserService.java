@@ -42,5 +42,19 @@ public class UserService {
                         telegramId, false, firstName, lastName, userName
                 )));
     }
+
+//    public User findOrCreateTelegramUser(Long telegramId, String firstName, String lastName, String userName) {
+//        return findByTelegramId(telegramId).orElseGet(() -> {
+//            User newUser = new User(
+//                    telegramId,
+//                    false,
+//                    firstName,
+//                    lastName,
+//                    userName
+//            );
+//            return saveUser(newUser);
+//        });
+//    }
+
 }
 
