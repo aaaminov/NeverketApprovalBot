@@ -1,0 +1,212 @@
+package com.neverket.telegram_approval_bot.bot;
+
+import com.neverket.telegram_approval_bot.config.BotConfig;
+import com.neverket.telegram_approval_bot.model.;
+import com.neverket.telegram_approval_bot.service.;
+import lombok.AllArgsConstructor;
+import org.springframework.stereotype.Component;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
+import java.util.List;
+
+@Component
+@AllArgsConstructor
+public class MyTelegramBot extends TelegramLongPollingBot {
+
+    private final BotConfig botConfig;
+    private final UserService userService;
+    private final RequestStatusService requestStatusService;
+    private final RequestService requestService;
+    private final UserStateService userStateService;
+    private final ApprovalRouteService approvalRouteService;
+
+
+    @Override
+    public String getBotUsername() {
+        return botConfig.botUsername;
+    }
+
+    @Override
+    public String getBotToken() {
+        return botConfig.botToken;
+    }
+
+    public void onUpdateReceived(Update update) {
+
+        if (update.hasMessage() && update.getMessage().hasText()) {
+            Long chatId = update.getMessage().getChatId();
+            String messageText = update.getMessage().getText();
+            Long telegramId = update.getMessage().getFrom().getId();
+            String firstName = update.getMessage().getFrom().getFirstName();
+            String lastName = update.getMessage().getFrom().getLastName();
+            String userName = update.getMessage().getFrom().getUserName();
+
+             Получаем пользователя по его Telegram ID
+            User user = userService.getOrCreateUser(telegramId, firstName, lastName, userName);
+            System.out.println(1 User found or created);
+
+            UserState userState = userStateService.findByUserId(user.getId())
+                    .orElseGet(() - {
+                        UserState newUserState = new UserState(
+                                user,
+                                UserBotState.NONE,
+                                null,
+                                0
+                        );
+                        return userStateService.saveUserState(newUserState);
+                    });
+
+            switch (messageText) {
+                case start
+                    startMessage(chatId, firstName);
+                    break;
+                case help
+                    sendHelpMessage(chatId);
+                    break;
+                case my_requests
+                    var requests = requestService.findAllByUser(user);
+                    if (requests.isEmpty()) {
+                        sendMessage(chatId, У вас пока нет заявок.);
+                    } else {
+                        StringBuilder sb = new StringBuilder(Ваши заявкиnn);
+                        for (Request req  requests) {
+                            sb.append(• [).append(req.getStatus().getName()).append(] )
+                                    .append(req.getText()).append(n);
+                        }
+                        sendMessage(chatId, sb.toString());
+                    }
+                    break;
+                case new_request
+                     Если пользователь не в процессе создания заявки
+                    if (userState.getState() == UserBotState.NONE) {
+                        startNewRequestProcess(chatId, user, userState);
+                         По умолчанию новый запрос будет иметь статус Новый
+                        RequestStatus newRequestStatus = requestStatusService.findByName(NEW)
+                                .orElseThrow(() - new RuntimeException(Статус 'NEW' не найден));
+
+                         Создаем заявку
+                        Request request = new Request(newRequestStatus, user, );
+                        requestService.saveRequest(request);
+
+                         Устанавливаем у пользователя состояние ожидания описания заявки
+
+                        userState.setState(UserBotState.WAITING_DESCRIPTION);
+                        userStateService.saveUserState(userState);
+
+                        sendMessage(chatId, Пожалуйста, введите описание заявки.);
+                    } else {
+                        sendMessage(chatId, Вы уже находитесь в процессе создания заявки.);
+                    }
+                    break;
+                case done
+                    userState.setState(UserBotState.CONFIRMING_REQUEST);
+                    handleUserInput(messageText, userState, chatId, user.getId());
+                    break;
+
+                default
+                    handleUserInput(messageText, userState, chatId, user.getId());
+                    break;
+            }
+        }
+    }
+
+    private void startNewRequestProcess(Long chatId, User user, UserState userState) {
+    }
+
+
+    void startMessage(Long chatId, String firstName) {
+        String answer = Привет,  + firstName + ! Вот что я умеюnn +
+                start – запуск ботаn +
+                new_request – новая заявкаn +
+                my_requests – просмотр своих заявокn +
+                approve – одобрение заявкиn +
+                reject – отклонение заявкиn +
+                help – справка по боту;
+        sendMessage(chatId, answer);
+    }
+
+    private void sendHelpMessage(Long chatId) {
+        String answer = Справка по ботуnn +
+                start – запуск ботаn +
+                new_request – новая заявкаn +
+                my_requests – просмотр своих заявокn +
+                approve – одобрение заявкиn +
+                reject – отклонение заявкиn +
+                help – справка по боту;
+        sendMessage(chatId, answer);
+    }
+
+    void sendMessage(Long chatId, String text) {
+        SendMessage sendMessage = new SendMessage();
+        sendMessage.setChatId(String.valueOf(chatId));
+        sendMessage.setText(text);
+        try {
+            execute(sendMessage);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handleUserInput(String messageText, UserState userState, Long chatId, Long userId) {
+        switch (userState.getState()) {
+            case WAITING_DESCRIPTION
+                 Обрабатываем описание заявки
+                Request request = new Request(
+                        requestStatusService.findByName(NEW)
+                                .orElseThrow(() - new RuntimeException(Статус 'NEW' не найден)),
+                        userService.findByTelegramId(userId).orElseThrow(),
+                        messageText);
+                requestService.saveRequest(request);
+
+                 Переходим к следующему шагу - получаем ревьюеров
+                userState.setState(UserBotState.WAITING_APPROVERS_LEVEL);
+                userState.setRequestInProgress(request);
+                userStateService.saveUserState(userState);
+
+                sendMessage(chatId, Теперь введите ники ревьюеров для первого уровня согласования, разделённые пробелом.);
+
+                 Выводим список доступных ревьюеров
+                ListUser availableReviewers = userService.findAllReviewers();
+                StringBuilder reviewersList = new StringBuilder(
+                        Теперь введите ники ревьюеров для первого уровня согласования, разделённые пробелом.nn);
+                reviewersList.append(Список доступных ревьюеровn);
+                for (User reviewer  availableReviewers) {
+                    reviewersList.append(reviewer.getUserName()).append(n);
+                }
+                sendMessage(chatId, reviewersList.toString());
+                break;
+
+            case WAITING_APPROVERS_LEVEL
+                 Обрабатываем введённые ники ревьюеров для текущего уровня
+                String[] reviewerUsernames = messageText.split( );
+                Request requestInProgress = userState.getRequestInProgress();
+
+                for (String username  reviewerUsernames) {
+                    User reviewer = userService.findByUserName(username)
+                            .orElseThrow(() - new RuntimeException(Пользователь с таким ником не найден));
+
+                     Сохраняем маршрут согласования
+                    approvalRouteService.save(new ApprovalRoute(requestInProgress, userState.getCurrentApprovalLevel(), reviewer));
+                }
+
+                 Переходим к следующему уровню согласования или завершаем
+                userState.setCurrentApprovalLevel(userState.getCurrentApprovalLevel() + 1);
+
+                sendMessage(chatId, Введите ревьюеров для следующего уровня согласования, или введите done для завершения.);
+                break;
+
+            case CONFIRMING_REQUEST
+                 Если заявка готова, подтверждаем её
+                sendMessage(chatId, Заявка готова, ожидайте подтверждения.);
+                break;
+
+            default
+                break;
+        }
+    }
+
+}
+

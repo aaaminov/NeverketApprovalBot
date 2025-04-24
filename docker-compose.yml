@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:${DB_PORT}"
+
+  bot:
+    build: .
+    depends_on:
+      - db
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      BOT_USERNAME: ${BOT_USERNAME}
+      BOT_TOKEN: ${BOT_TOKEN}
