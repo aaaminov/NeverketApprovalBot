@@ -19,30 +19,30 @@ public class MessageSender {
         this.bot = bot;
     }
 
+    private String getCommands() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("/start – запуск бота\n" +
+                        "/new_request – новая заявка\n" +
+                        "/my_requests – просмотр своих заявок\n" +
+                        "/help – справка по боту\n" +
+                        "/become_reviewer – стать ревьювером\n" +
+                        "/remove_reviewer – перестать быть ревьювером\n" +
+//                        "/cancel - отменить текущее действие\n" +
+//                "/approve_[id] - Одобрить заявку\n" +
+//                "/reject_[id] - Отклонить заявку\n" +
+//                "/request_changes_[id] - Запросить доработку\n" +
+                        ""
+        );
+        return sb.toString();
+    }
+
     public void sendStartMessage(Long chatId, String firstName) {
-        String answer = "Привет, " + firstName + "! Вот что я умею:\n\n" +
-                "/start – запуск бота\n" +
-                "/new_request – новая заявка\n" +
-                "/my_requests – просмотр своих заявок\n" +
-                "/approve – одобрение заявки\n" +
-                "/reject – отклонение заявки\n" +
-                "/help – справка по боту";
+        String answer = "Привет, " + firstName + "! Вот что я умею:\n\n" + getCommands();
         sendMessage(chatId, answer);
     }
 
     public void sendHelpMessage(Long chatId) {
-        String answer = "Справка по боту:\n\n" +
-                "/start – запуск бота\n" +
-                "/new_request – новая заявка\n" +
-                "/my_requests – просмотр своих заявок\n" +
-                "/help – справка по боту\n" +
-                "/become_reviewer – стать ревьювером\n" +
-                "/remove_reviewer – перестать быть ревьювером\n" +
-//                "/approve_[id] - Одобрить заявку\n" +
-//                "/reject_[id] - Отклонить заявку\n" +
-//                "/request_changes_[id] - Запросить доработку\n" +
-
-                "";
+        String answer = "Справка по боту:\n\n" + getCommands();
         sendMessage(chatId, answer);
     }
 
