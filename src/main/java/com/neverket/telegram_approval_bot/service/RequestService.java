@@ -28,9 +28,7 @@ public class RequestService {
         return requestRepository.findByUser(user);
     }
 
-    /**
-     * Проверяет статусы всех ApprovalRoute и обновляет общий статус заявки
-     */
+    // Проверяет статусы всех ApprovalRoute и обновляет общий статус заявки
     public void updateRequestStatusAfterApproval(Long requestId, NotificationService notificationService) {
         Request request = requestRepository.findById(requestId).orElseThrow();
         List<ApprovalRoute> routes = approvalRouteRepository.findByRequest(request);
@@ -61,7 +59,8 @@ public class RequestService {
         request.setStatus(requestStatusService.findByName("APPROVED").orElseThrow());
         notificationService.notifyAllParticipants(
                 request,
-                "Заявка #" + request.getId() + " успешно согласована. ✅"
+                "Заявка #" + request.getId() + " успешно согласована. ✅\n"
+                        + "Текст заявки:\n" + request.getText()
         );
     }
 
@@ -69,7 +68,8 @@ public class RequestService {
         request.setStatus(requestStatusService.findByName("REJECTED").orElseThrow());
         notificationService.notifyAllParticipants(
                 request,
-                "Заявка #" + request.getId() + " отклонена. Процесс согласования прекращен. ❌"
+                "Заявка #" + request.getId() + " отклонена. Процесс согласования прекращен. ❌\n"
+                        + "Текст заявки:\n" + request.getText()
         );
     }
 
