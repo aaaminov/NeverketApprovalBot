@@ -1,22 +1,30 @@
 version: '3.8'
+
 services:
   db:
-    image: postgres
+    image: postgres:13
     restart: always
+    env_file: .env
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT}:${DB_PORT}"
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   bot:
     build: .
     depends_on:
       - db
+    env_file: .env
     environment:
-      DB_URL: ${DB_URL}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      BOT_USERNAME: ${BOT_USERNAME}
-      BOT_TOKEN: ${BOT_TOKEN}
+      # DB_URL: jdbc:postgresql://db:5432/${DB_NAME}
+      DB_URL: jdbc:postgresql://host.docker.internal:5432/${DB_NAME}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

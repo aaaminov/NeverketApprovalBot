@@ -77,7 +77,10 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     }
 
     private void logUserInfo(MessageContext context) {
-        System.out.println("\nТекст пользователя:\n" + context.getMessageText() + "\n");
+        System.out.println(
+                "Пользователь:\n" + context.getUserName() + "\n"
+                + "Текст пользователя:\n" + context.getMessageText() + "\n"
+        );
     }
 
     private User getUserOrCreateIfNotExists(MessageContext context) {
@@ -99,7 +102,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private void processMessage(MessageContext context, User user, Optional<UserState> userState) {
         if (userState.isPresent()) {
-            System.out.println(userState.get().toString());
+            System.out.println("2/ Current UserState: " + userState.get().toString());
         } else {
             System.out.println("2/ UserState not founded");
         }

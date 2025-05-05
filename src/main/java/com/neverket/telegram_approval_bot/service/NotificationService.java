@@ -82,7 +82,7 @@ public class NotificationService {
 
     private void sendApprovalNotificationWithButtons(User reviewer, Request request) {
         String message = String.format(
-                "Новая заявка на согласование:\n\n" +
+                "Вам заявка на согласование:\n\n" +
                         "#%d\n" +
                         "Автор: @%s\n" +
                         "Текст: %s",
@@ -94,7 +94,7 @@ public class NotificationService {
         List<InlineKeyboardButton> buttons = Arrays.asList(
                 createButton("Одобрить", "approve_" + request.getId()),
                 createButton("Отклонить", "reject_" + request.getId()),
-                createButton("Запросить доработку", "request_changes_" + request.getId())
+                createButton("Доработка", "request_changes_" + request.getId())
         );
 
         messageSender.sendMessageWithButtons(reviewer.getTelegramId(), message, buttons);
@@ -172,5 +172,14 @@ public class NotificationService {
         approvalRouteRepository.findByRequest(request).forEach(route -> {
             messageSender.sendMessage(route.getReviewer().getTelegramId(), message);
         });
+    }
+
+    public void notifyReviewersOnLevel(Request request, int level) {
+        approvalRouteRepository.findByRequestAndLevel(request, level)
+                .forEach(route -> {
+                    if (route.getApprovalStatus() == ApprovalStatus.PENDING) {
+                        sendApprovalNotificationWithButtons(route.getReviewer(), request);
+                    }
+                });
     }
 }
