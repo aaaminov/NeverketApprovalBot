@@ -28,4 +28,7 @@ public interface ApprovalRouteRepository extends JpaRepository<ApprovalRoute, Lo
     boolean existsByRequestAndReviewer(Request request, User reviewer);
 
     List<ApprovalRoute> findByRequestAndLevel( Request request, int level );
+
+
+    List<ApprovalRoute> findByReviewerAndApprovalStatus(User reviewer, ApprovalStatus status);
 }

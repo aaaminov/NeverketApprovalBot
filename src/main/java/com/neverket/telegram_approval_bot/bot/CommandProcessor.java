@@ -66,7 +66,10 @@ public class CommandProcessor {
             case "/remove_reviewer":
                 handleRemoveReviewer(context.getChatId(), user);
                 break;
-            //
+            // v4
+            case "/requests":
+                handleRequestsCommand(context.getChatId(), user);
+                break;
             default:
                 break;
         }
@@ -217,10 +220,11 @@ public class CommandProcessor {
         var savedState = userStateService.saveUserState(userState);
         System.out.println("after save: " + savedState.toString());
 
-        StringBuilder messageText = new StringBuilder(
-                "Теперь введите ники ревьюеров для первого уровня согласования, через @ и разделённые пробелом.\n\n");
-        messageText.append(getReviewers());
-        messageSender.sendMessage(context.getChatId(), messageText.toString());
+        messageSender.sendMessage(
+                context.getChatId(),
+                "Теперь введите ники ревьюеров для первого уровня согласования, через @ и разделённые пробелом.\n\n"
+                        + getReviewers()
+        );
     }
 
     private void handleWaitingApproversState(MessageContext context, Request request, UserState userState) {
@@ -386,7 +390,7 @@ public class CommandProcessor {
         StringBuilder reviewersList = new StringBuilder("Список доступных ревьюеров:\n");
         List<User> availableReviewers = userService.findAllReviewers();
         for (int i = 0; i < availableReviewers.size(); i++) {
-            reviewersList.append((i + 1) + ". @" + availableReviewers.get(i).getUserName()).append("\n");
+            reviewersList.append((i + 1)).append(". @").append(availableReviewers.get(i).getUserName()).append("\n");
         }
         return reviewersList.toString();
     }
@@ -432,11 +436,11 @@ public class CommandProcessor {
                     resetApprovalsForLevel(request, previousLevel);
 
                     // Уведомляем предыдущий уровень
-                    notificationService.notifyReviewersOnLevel(request, previousLevel);
+//                    notificationService.notifyReviewersOnLevel(request, previousLevel);
                 } else {
                     // Сбрасываем первый уровень
                     resetApprovalsForLevel(request, 1);
-                    notificationService.notifyReviewersOnLevel(request, 1);
+//                    notificationService.notifyReviewersOnLevel(request, 1);
                 }
             } else {
                 // Если все уровни завершены, сбрасываем последний
@@ -448,7 +452,7 @@ public class CommandProcessor {
                 System.out.println("minPendingLevel not found, maxLevel: " + maxLevel);
 
                 resetApprovalsForLevel(request, maxLevel);
-                notificationService.notifyReviewersOnLevel(request, maxLevel);
+//                notificationService.notifyReviewersOnLevel(request, maxLevel);
             }
 
             request.setStatus(requestStatusService.findByName("NEEDS_REVISION").orElseThrow());
@@ -523,5 +527,25 @@ public class CommandProcessor {
     }
 
 
+    private void handleRequestsCommand(Long chatId, User reviewer) {
+
+        List<ApprovalRoute> approvalRoutes = approvalRouteService.findByReviewerAndApprovalStatus(reviewer, ApprovalStatus.PENDING);
+
+        if (approvalRoutes.isEmpty()) {
+            messageSender.sendMessage(chatId, "Нет активных заявок на согласование.");
+            return;
+        }
+
+        int minLevel = approvalRoutes.getFirst().getLevel();
+
+        for (ApprovalRoute ar : approvalRoutes) {
+            if (ar.getLevel() == minLevel) {
+                Request request = ar.getRequest();
+                messageSender.sendMessage(chatId, "Текущие заявки вам на согласование:");
+                notificationService.sendApprovalNotificationWithButtons(reviewer, request);
+            }
+        }
+
+    }
 }
 

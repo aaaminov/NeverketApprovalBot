@@ -21,12 +21,13 @@ public class MessageSender {
 
     private String getCommands() {
         StringBuilder sb = new StringBuilder();
-        sb.append("/start – запуск бота\n" +
-                        "/new_request – новая заявка\n" +
-                        "/my_requests – просмотр своих заявок\n" +
-                        "/help – справка по боту\n" +
-                        "/become_reviewer – стать ревьювером\n" +
-                        "/remove_reviewer – перестать быть ревьювером\n" +
+        sb.append("/start - запуск бота\n" +
+                        "/new_request - новая заявка\n" +
+                        "/requests - текущие заявки\n" +
+                        "/my_requests - история своих заявок\n" +
+                        "/become_reviewer - стать проверяющим\n" +
+                        "/remove_reviewer - перестать быть проверяющим\n" +
+                        "/help - справка по боту\n" +
 //                        "/cancel - отменить текущее действие\n" +
 //                "/approve_[id] - Одобрить заявку\n" +
 //                "/reject_[id] - Отклонить заявку\n" +
