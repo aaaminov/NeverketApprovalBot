@@ -66,7 +66,10 @@ public class CommandProcessor {
             case "/remove_reviewer":
                 handleRemoveReviewer(context.getChatId(), user);
                 break;
-            //
+            // v4
+            case "/requests":
+                handleRequestsCommand(context.getChatId(), user);
+                break;
             default:
                 break;
         }
@@ -523,5 +526,21 @@ public class CommandProcessor {
     }
 
 
+    private void handleRequestsCommand(Long chatId, User reviewer) {
+
+        List<ApprovalRoute> approvalRoutes = approvalRouteService.findByReviewerAndApprovalStatus(reviewer, ApprovalStatus.PENDING);
+
+        if (approvalRoutes.isEmpty()) {
+            messageSender.sendMessage(chatId, "Нет активных заявок на согласование.");
+            return;
+        }
+
+        for (ApprovalRoute ar : approvalRoutes) {
+            Request request = ar.getRequest();
+            messageSender.sendMessage(chatId, "Текущие заявки вам на согласование:");
+            notificationService.sendApprovalNotificationWithButtons(reviewer, request);
+        }
+
+    }
 }
 

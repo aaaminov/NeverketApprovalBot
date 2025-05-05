@@ -80,7 +80,7 @@ public class NotificationService {
         messageSender.sendMessage(reviewer.getTelegramId(), message);
     }
 
-    private void sendApprovalNotificationWithButtons(User reviewer, Request request) {
+    public void sendApprovalNotificationWithButtons(User reviewer, Request request) {
         String message = String.format(
                 "Вам заявка на согласование:\n\n" +
                         "#%d\n" +

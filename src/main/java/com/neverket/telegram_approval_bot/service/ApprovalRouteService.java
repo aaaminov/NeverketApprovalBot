@@ -58,4 +58,9 @@ public class ApprovalRouteService {
     public void saveAll(List<ApprovalRoute> routes) {
         approvalRouteRepository.saveAll(routes);
     }
+
+
+    public List<ApprovalRoute> findByReviewerAndApprovalStatus(User reviewer, ApprovalStatus status) {
+        return approvalRouteRepository.findByReviewerAndApprovalStatus(reviewer, status);
+    }
 }
