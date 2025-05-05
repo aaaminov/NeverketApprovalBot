@@ -10,4 +10,6 @@ public class TelegramApprovalBotApplication {
 		SpringApplication.run(TelegramApprovalBotApplication.class, args);
 	}
 
+	// lol
+
 }
